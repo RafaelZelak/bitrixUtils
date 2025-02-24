@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="bitrixUtils",  # Nome do pacote
-    version="0.1.1",  # Versão inicial
+    name="bitrixUtils",
+    version="0.1.1",
     author="Rafael Zelak Fernandes",
     author_email="rzf1503@gmail.com",
     description="Uma biblioteca para facilitar a integração com a API do Bitrix24",
@@ -11,7 +11,7 @@ setup(
     url="https://github.com/RafaelZelak/bitrixUtils.git",
     packages=find_packages(),
     install_requires=[
-        "requests",  # Adicionando apenas as dependências não nativas
+        "requests",
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
