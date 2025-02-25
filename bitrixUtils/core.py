@@ -8,7 +8,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="\n%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("bitrix_utils.log"),  # Salva logs em um arquivo
         logging.StreamHandler()  # Exibe logs no console
     ]
 )
@@ -231,6 +230,64 @@ def obterEndereco(contact_id, bitrix_webhook_url, LOG=False):
         return endereco
 
     log_detalhado(f"[OBTER ENDEREÇO] Nenhum endereço encontrado para contato ID {contact_id}.", LOG)
+    return None
+
+def obterCamposContato(contact_id, bitrix_webhook_url, LOG=False):
+    """
+    Obtém todos os campos de um contato específico no Bitrix24.
+
+    :param contact_id: ID do contato a ser consultado.
+    :param bitrix_webhook_url: URL base do webhook do Bitrix24.
+    :param LOG: Se True, ativa logs detalhados.
+
+    :return: Dicionário com os campos do contato ou None em caso de erro.
+    """
+    params = {"id": contact_id}
+    response = _bitrix_request("crm.contact.get", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        contato = response["result"]
+        log_detalhado(f"[OBTER CAMPOS CONTATO] Campos obtidos com sucesso para contato ID {contact_id}.", LOG)
+        return contato
+
+    log_detalhado(f"[OBTER CAMPOS CONTATO] Nenhum contato encontrado para ID {contact_id}.", LOG)
+    return None
+
+def obterCampoEspecificoContato(campo_personalizado, bitrix_webhook_url, LOG=False):
+    """
+    Obtém os metadados de um campo personalizado específico de um contato no Bitrix24 e,
+    se presente, retorna a propriedade "items" desse campo.
+
+    :param campo_personalizado: Nome exato do campo personalizado (ex: ufCrm41_1737980514688).
+    :param bitrix_webhook_url: URL base do webhook do Bitrix24.
+    :param LOG: Se True, ativa logs detalhados.
+
+    :return: Lista com os itens do campo, ou o dicionário do campo se não possuir "items".
+    """
+    # Faz a requisição para obter todos os campos dos contatos
+    response = _bitrix_request("crm.contact.fields", {}, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        campos = response["result"]
+
+        # Debug: log das chaves encontradas para ajudar na depuração
+        for key in campos:
+            log_detalhado(f"[DEBUG] Chave encontrada: {repr(key)}", LOG)
+
+        # Normaliza a comparação removendo espaços e convertendo para minúsculas
+        campo_procura = campo_personalizado.strip().lower()
+
+        for key in campos:
+            if key.strip().lower() == campo_procura:
+                log_detalhado(f"[OBTER CAMPO ESPECÍFICO CONTATO] Campo encontrado: {key}", LOG)
+                field_data = campos[key]
+                if "items" in field_data:
+                    return field_data["items"]
+                else:
+                    log_detalhado(f"[OBTER CAMPO ESPECÍFICO CONTATO] O campo {key} não possui a propriedade 'items'.", LOG)
+                    return field_data
+
+    log_detalhado(f"[OBTER CAMPO ESPECÍFICO CONTATO] Campo {campo_personalizado} não encontrado nos contatos.", LOG)
     return None
 
 # ==========================
@@ -516,3 +573,54 @@ def listarCardsSPA(bitrix_webhook_url, entity_type_id, category_id=None, stage_i
 
     return cards
 
+def listAllSPA(bitrix_webhook_url, LOG=False):
+    """
+    Obtém a lista de entidades do CRM do Bitrix24.
+
+    :param bitrix_webhook_url: URL base do webhook do Bitrix24.
+    :param LOG: Se True, ativa logs detalhados.
+
+    :return: Lista de dicionários contendo 'title' e 'entityTypeId' das entidades.
+    """
+    method = "crm.type.list"  # Método para listar os tipos de entidades
+    response = _bitrix_request(method, {}, bitrix_webhook_url, LOG)
+
+    # Verificando se a resposta é válida e contém os dados esperados
+    if response and "result" in response and "types" in response["result"]:
+        entidades = []
+
+        for entity in response["result"]["types"]:
+            entidade_info = {
+                "title": entity.get("title"),
+                "entityTypeId": entity.get("entityTypeId")
+            }
+            entidades.append(entidade_info)
+
+        log_detalhado(f"[FIND ENTERPRISE] {len(entidades)} entidades encontradas.", LOG)
+        return entidades  # Retorna a lista formatada
+
+    log_detalhado("[FIND ENTERPRISE] Nenhuma entidade encontrada ou formato inesperado da resposta.", LOG)
+    return None  # Retorna None em caso de erro
+
+def obterTypeId(bitrixWebhookUrl, LOG=False):
+    """
+    Obtém todos os valores distintos do campo TYPE_ID dos contatos no Bitrix24 e seus significados.
+
+    Essa função consulta a API `crm.status.list` para mapear os IDs dos TYPE_IDs aos seus respectivos valores.
+
+    :param bitrixWebhookUrl: URL base do webhook do Bitrix24.
+    :param LOG: Se True, ativa logs detalhados para depuração.
+
+    :return: Dicionário { ID: "Descrição" } contendo todos os valores possíveis do TYPE_ID.
+    """
+    params = {"FILTER": {"ENTITY_ID": "CONTACT_TYPE"}}
+
+    response = _bitrix_request("crm.status.list", params, bitrixWebhookUrl, LOG)
+
+    if response and "result" in response:
+        typeIdMap = {item["STATUS_ID"]: item["NAME"] for item in response["result"]}
+        log_detalhado(f"[OBTER TYPE_ID] Mapeamento obtido: {typeIdMap}", LOG)
+        return typeIdMap
+
+    log_detalhado("[OBTER TYPE_ID] Erro ao buscar os metadados do campo TYPE_ID via crm.status.list.", LOG)
+    return {}
