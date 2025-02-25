@@ -1,0 +1,6 @@
+build/
+dist/
+bitrixUtils.egg-info/
+__pycache__.py
+tests/__pycache__.py
+bitrixUtils/__pycache__.py
