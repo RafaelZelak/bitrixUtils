@@ -3,7 +3,6 @@ import logging
 import json
 import time
 
-# Configuração de logs
 logging.basicConfig(
     level=logging.INFO,
     format="\n%(asctime)s - %(levelname)s - %(message)s",
@@ -12,11 +11,12 @@ logging.basicConfig(
     ]
 )
 
-# ==========================
-# FUNÇÕES GERAIS
-# ==========================
+# General Functions
 
-def log_detalhado(mensagem, tag_log=False):
+# logDetailedMessage
+# EN: Logs a detailed message if the LOG flag is enabled
+# PT: Registra uma mensagem detalhada se a flag LOG estiver ativada
+def logDetailedMessage(mensagem, tag_log=False):
     """
     Função para gerar logs detalhados se a tag LOG estiver ativa.
 
@@ -26,6 +26,9 @@ def log_detalhado(mensagem, tag_log=False):
     if tag_log:
         logging.info(mensagem)
 
+# _bitrix_request
+# EN: Makes API requests to Bitrix24 with error handling and retry logic
+# PT: Faz requisições à API do Bitrix24 com tratamento de erros e tentativas
 def _bitrix_request(api_method, params, bitrix_webhook_url, LOG=False, max_retries=5):
     """
     Função centralizada para requisições ao Bitrix24 com tratamento de erros e retry.
@@ -43,42 +46,148 @@ def _bitrix_request(api_method, params, bitrix_webhook_url, LOG=False, max_retri
     for tentativa in range(max_retries):
         try:
             if LOG:
-                log_detalhado(f"[BITRIX REQUEST] Tentativa {tentativa + 1}/{max_retries} para {api_method}", LOG)
-                log_detalhado(f"[BITRIX REQUEST] Payload: {json.dumps(params, indent=2, ensure_ascii=False)}", LOG)
+                logDetailedMessage(f"[BITRIX REQUEST] Tentativa {tentativa + 1}/{max_retries} para {api_method}", LOG)
+                logDetailedMessage(f"[BITRIX REQUEST] Payload: {json.dumps(params, indent=2, ensure_ascii=False)}", LOG)
 
             response = requests.post(endpoint, json=params, timeout=10)
 
             if LOG:
-                log_detalhado(f"[BITRIX REQUEST] Resposta: {response.status_code} - {response.text}", LOG)
+                logDetailedMessage(f"[BITRIX REQUEST] Resposta: {response.status_code} - {response.text}", LOG)
 
             if response.status_code == 200:
                 return response.json()
 
             elif response.status_code == 503:  # Too Many Requests
-                log_detalhado(f"[BITRIX REQUEST] Erro 503: Too Many Requests. Retentando em {delay} segundos...", LOG)
+                logDetailedMessage(f"[BITRIX REQUEST] Erro 503: Too Many Requests. Retentando em {delay} segundos...", LOG)
                 time.sleep(delay)
                 delay *= 2  # Aumenta o tempo de espera exponencialmente
 
             else:
-                log_detalhado(f"[BITRIX REQUEST] Erro na requisição: {response.status_code} - {response.text}", LOG)
+                logDetailedMessage(f"[BITRIX REQUEST] Erro na requisição: {response.status_code} - {response.text}", LOG)
                 return None
 
         except requests.Timeout:
-            log_detalhado(f"[BITRIX REQUEST] Timeout na requisição. Tentativa {tentativa + 1}/{max_retries}. Retentando em {delay} segundos...", LOG)
+            logDetailedMessage(f"[BITRIX REQUEST] Timeout na requisição. Tentativa {tentativa + 1}/{max_retries}. Retentando em {delay} segundos...", LOG)
             time.sleep(delay)
             delay *= 2  # Backoff exponencial
         except requests.RequestException as e:
-            log_detalhado(f"[BITRIX REQUEST] Erro ao conectar com Bitrix24: {str(e)}", LOG)
+            logDetailedMessage(f"[BITRIX REQUEST] Erro ao conectar com Bitrix24: {str(e)}", LOG)
             return None
 
-    log_detalhado("[BITRIX REQUEST] Número máximo de tentativas atingido. Requisição falhou.", LOG)
+    logDetailedMessage("[BITRIX REQUEST] Número máximo de tentativas atingido. Requisição falhou.", LOG)
     return None
 
-# ==========================
-# FUNÇÕES DE CONTATOS
-# ==========================
+# getTypeId
+# EN: Gets all possible contact type IDs and their descriptions
+# PT: Obtém todos os tipos de contato possíveis e suas descrições
+def getTypeId(bitrixWebhookUrl, LOG=False):
+    """
+    Obtém todos os valores distintos do campo TYPE_ID dos contatos no Bitrix24 e seus significados.
 
-def verificarContato(key, keyField, bitrix_webhook_url, LOG=False):
+    Essa função consulta a API `crm.status.list` para mapear os IDs dos TYPE_IDs aos seus respectivos valores.
+
+    :param bitrixWebhookUrl: URL base do webhook do Bitrix24.
+    :param LOG: Se True, ativa logs detalhados para depuração.
+
+    :return: Dicionário { ID: "Descrição" } contendo todos os valores possíveis do TYPE_ID.
+    """
+    params = {"FILTER": {"ENTITY_ID": "CONTACT_TYPE"}}
+
+    response = _bitrix_request("crm.status.list", params, bitrixWebhookUrl, LOG)
+
+    if response and "result" in response:
+        typeIdMap = {item["STATUS_ID"]: item["NAME"] for item in response["result"]}
+        logDetailedMessage(f"[OBTER TYPE_ID] Mapeamento obtido: {typeIdMap}", LOG)
+        return typeIdMap
+
+    logDetailedMessage("[OBTER TYPE_ID] Erro ao buscar os metadados do campo TYPE_ID via crm.status.list.", LOG)
+    return {}
+
+# listSpaEntities
+# EN: Lists all available SPA entities in Bitrix24
+# PT: Lista todas as entidades SPA disponíveis no Bitrix24
+def listSpaEntities(bitrix_webhook_url, LOG=False):
+    """
+    Obtém a lista de entidades do CRM do Bitrix24.
+
+    :param bitrix_webhook_url: URL base do webhook do Bitrix24.
+    :param LOG: Se True, ativa logs detalhados.
+
+    :return: Lista de dicionários contendo 'title' e 'entityTypeId' das entidades.
+    """
+    method = "crm.type.list"  # Método para listar os tipos de entidades
+    response = _bitrix_request(method, {}, bitrix_webhook_url, LOG)
+
+    # Verificando se a resposta é válida e contém os dados esperados
+    if response and "result" in response and "types" in response["result"]:
+        entidades = []
+
+        for entity in response["result"]["types"]:
+            entidade_info = {
+                "title": entity.get("title"),
+                "entityTypeId": entity.get("entityTypeId")
+            }
+            entidades.append(entidade_info)
+
+        logDetailedMessage(f"[FIND ENTERPRISE] {len(entidades)} entidades encontradas.", LOG)
+        return entidades  # Retorna a lista formatada
+
+    logDetailedMessage("[FIND ENTERPRISE] Nenhuma entidade encontrada ou formato inesperado da resposta.", LOG)
+    return None  # Retorna None em caso de erro
+
+# Contact Functions
+
+# getContactAddressById
+# EN: Retrieves a contact's address using their ID, checking both address API and contact data
+# PT: Obtém o endereço de um contato usando seu ID, verificando tanto a API de endereços quanto os dados do contato
+def getContactAddressById(contact_id, bitrix_webhook_url, LOG=False):
+    """
+    Obtém o endereço vinculado a um contato no Bitrix24.
+
+    Primeiro, verifica se o endereço está cadastrado na API crm.address.list.
+    Caso não esteja, retorna os dados de endereço armazenados diretamente no contato.
+
+    :param contact_id: ID do contato no Bitrix24.
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param LOG: Se True, ativa logs detalhados.
+    :return: Dicionário contendo os dados do endereço ou None caso não exista.
+    """
+
+    # Tentar obter endereço via crm.address.list
+    params = {
+        "filter": {"ENTITY_ID": contact_id},
+        "select": ["*"]
+    }
+    response = _bitrix_request("crm.address.list", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response and response["result"]:
+        endereco = response["result"][0]
+        logDetailedMessage(f"[OBTER ENDEREÇO] Endereço encontrado na API crm.address.list para contato ID: {contact_id}", LOG)
+        return endereco
+
+    # Se não encontrar na crm.address.list, buscar diretamente no contato
+    contato = _bitrix_request("crm.contact.get", {"ID": contact_id}, bitrix_webhook_url, LOG)
+
+    if contato and "result" in contato:
+        endereco = {
+            "ADDRESS_1": contato["result"].get("ADDRESS"),
+            "ADDRESS_2": contato["result"].get("ADDRESS_2"),
+            "CITY": contato["result"].get("ADDRESS_CITY"),
+            "POSTAL_CODE": contato["result"].get("ADDRESS_POSTAL_CODE"),
+            "REGION": contato["result"].get("ADDRESS_REGION"),
+            "PROVINCE": contato["result"].get("ADDRESS_PROVINCE"),
+            "COUNTRY": contato["result"].get("ADDRESS_COUNTRY"),
+        }
+        logDetailedMessage(f"[OBTER ENDEREÇO] Endereço extraído diretamente do contato ID: {contact_id}", LOG)
+        return endereco if any(endereco.values()) else None
+
+    logDetailedMessage(f"[OBTER ENDEREÇO] Nenhum endereço encontrado para contato ID: {contact_id}", LOG)
+    return None
+
+# checkContactExists
+# EN: Checks if a contact exists using a unique field (like CPF or email)
+# PT: Verifica se um contato existe usando um campo único (como CPF ou email)
+def checkContactExists(key, keyField, bitrix_webhook_url, LOG=False):
     """
     Verifica se um contato com um campo único (ex: CPF, e-mail) já existe no Bitrix24.
 
@@ -97,13 +206,16 @@ def verificarContato(key, keyField, bitrix_webhook_url, LOG=False):
 
     if response and "result" in response and response["result"]:
         contact_id = response["result"][0]["ID"]
-        log_detalhado(f"[VERIFICAR CONTATO] Contato encontrado. ID: {contact_id}", LOG)
+        logDetailedMessage(f"[VERIFICAR CONTATO] Contato encontrado. ID: {contact_id}", LOG)
         return contact_id
 
-    log_detalhado("[VERIFICAR CONTATO] Nenhum contato encontrado.", LOG)
+    logDetailedMessage("[VERIFICAR CONTATO] Nenhum contato encontrado.", LOG)
     return None
 
-def criarContato(contact_data, cpf_field, bitrix_webhook_url, extra_fields=None, LOG=False):
+#createContact
+# EN: Creates a new contact with required and optional custom fields
+# PT: Cria um novo contato com campos obrigatórios e personalizados opcionais
+def createContact(contact_data, cpf_field, bitrix_webhook_url, extra_fields=None, LOG=False):
     """
     Cria um novo contato no Bitrix24.
 
@@ -143,13 +255,16 @@ def criarContato(contact_data, cpf_field, bitrix_webhook_url, extra_fields=None,
     # Verifica resposta e retorna o ID do contato criado
     if response and "result" in response:
         contact_id = response["result"]
-        log_detalhado(f"[CRIAR CONTATO] Contato criado com sucesso. ID: {contact_id}", LOG)
+        logDetailedMessage(f"[CRIAR CONTATO] Contato criado com sucesso. ID: {contact_id}", LOG)
         return contact_id
 
-    log_detalhado("[CRIAR CONTATO] Falha ao obter o ID do contato criado.", LOG)
+    logDetailedMessage("[CRIAR CONTATO] Falha ao obter o ID do contato criado.", LOG)
     return None
 
-def criarEndereco(contact_id, address_data, bitrix_webhook_url, extra_fields=None, LOG=False):
+#createContactAddress
+# EN: Creates and links a new address to an existing contact
+# PT: Cria e vincula um novo endereço a um contato existente
+def createContactAddress(contact_id, address_data, bitrix_webhook_url, extra_fields=None, LOG=False):
     """
     Cria um endereço no Bitrix24 e vincula ao contato especificado.
 
@@ -196,13 +311,16 @@ def criarEndereco(contact_id, address_data, bitrix_webhook_url, extra_fields=Non
     # Verifica resposta e retorna o ID do endereço criado
     if response and "result" in response:
         address_id = response["result"]
-        log_detalhado(f"[CRIAR ENDEREÇO] Endereço criado com sucesso. ID: {address_id}", LOG)
+        logDetailedMessage(f"[CRIAR ENDEREÇO] Endereço criado com sucesso. ID: {address_id}", LOG)
         return address_id
 
-    log_detalhado("[CRIAR ENDEREÇO] Falha ao obter o ID do endereço criado.", LOG)
+    logDetailedMessage("[CRIAR ENDEREÇO] Falha ao obter o ID do endereço criado.", LOG)
     return None
 
-def obterEndereco(contact_id, bitrix_webhook_url, LOG=False):
+# getContactAddress
+# EN: Gets the first address associated with a contact
+# PT: Obtém o primeiro endereço associado a um contato
+def getContactAddress(contact_id, bitrix_webhook_url, LOG=False):
     """
     Obtém o endereço vinculado a um contato no Bitrix24.
 
@@ -226,13 +344,16 @@ def obterEndereco(contact_id, bitrix_webhook_url, LOG=False):
 
     if response and "result" in response and response["result"]:
         endereco = response["result"][0]  # Retorna o primeiro endereço encontrado
-        log_detalhado(f"[OBTER ENDEREÇO] Endereço encontrado para contato ID {contact_id}: {endereco}", LOG)
+        logDetailedMessage(f"[OBTER ENDEREÇO] Endereço encontrado para contato ID {contact_id}: {endereco}", LOG)
         return endereco
 
-    log_detalhado(f"[OBTER ENDEREÇO] Nenhum endereço encontrado para contato ID {contact_id}.", LOG)
+    logDetailedMessage(f"[OBTER ENDEREÇO] Nenhum endereço encontrado para contato ID {contact_id}.", LOG)
     return None
 
-def obterCamposContato(contact_id, bitrix_webhook_url, LOG=False):
+#getContactFields
+# EN: Retrieves all fields from a specific contact
+# PT: Obtém todos os campos de um contato específico
+def getContactFields(contact_id, bitrix_webhook_url, LOG=False):
     """
     Obtém todos os campos de um contato específico no Bitrix24.
 
@@ -247,13 +368,16 @@ def obterCamposContato(contact_id, bitrix_webhook_url, LOG=False):
 
     if response and "result" in response:
         contato = response["result"]
-        log_detalhado(f"[OBTER CAMPOS CONTATO] Campos obtidos com sucesso para contato ID {contact_id}.", LOG)
+        logDetailedMessage(f"[OBTER CAMPOS CONTATO] Campos obtidos com sucesso para contato ID {contact_id}.", LOG)
         return contato
 
-    log_detalhado(f"[OBTER CAMPOS CONTATO] Nenhum contato encontrado para ID {contact_id}.", LOG)
+    logDetailedMessage(f"[OBTER CAMPOS CONTATO] Nenhum contato encontrado para ID {contact_id}.", LOG)
     return None
 
-def obterCampoEspecificoContato(campo_personalizado, bitrix_webhook_url, LOG=False):
+# getSpecificContactField
+# EN: Gets metadata for a specific contact custom field
+# PT: Obtém metadados de um campo personalizado específico do contato
+def getSpecificContactField(campo_personalizado, bitrix_webhook_url, LOG=False):
     """
     Obtém os metadados de um campo personalizado específico de um contato no Bitrix24 e,
     se presente, retorna a propriedade "items" desse campo.
@@ -272,29 +396,30 @@ def obterCampoEspecificoContato(campo_personalizado, bitrix_webhook_url, LOG=Fal
 
         # Debug: log das chaves encontradas para ajudar na depuração
         for key in campos:
-            log_detalhado(f"[DEBUG] Chave encontrada: {repr(key)}", LOG)
+            logDetailedMessage(f"[DEBUG] Chave encontrada: {repr(key)}", LOG)
 
         # Normaliza a comparação removendo espaços e convertendo para minúsculas
         campo_procura = campo_personalizado.strip().lower()
 
         for key in campos:
             if key.strip().lower() == campo_procura:
-                log_detalhado(f"[OBTER CAMPO ESPECÍFICO CONTATO] Campo encontrado: {key}", LOG)
+                logDetailedMessage(f"[OBTER CAMPO ESPECÍFICO CONTATO] Campo encontrado: {key}", LOG)
                 field_data = campos[key]
                 if "items" in field_data:
                     return field_data["items"]
                 else:
-                    log_detalhado(f"[OBTER CAMPO ESPECÍFICO CONTATO] O campo {key} não possui a propriedade 'items'.", LOG)
+                    logDetailedMessage(f"[OBTER CAMPO ESPECÍFICO CONTATO] O campo {key} não possui a propriedade 'items'.", LOG)
                     return field_data
 
-    log_detalhado(f"[OBTER CAMPO ESPECÍFICO CONTATO] Campo {campo_personalizado} não encontrado nos contatos.", LOG)
+    logDetailedMessage(f"[OBTER CAMPO ESPECÍFICO CONTATO] Campo {campo_personalizado} não encontrado nos contatos.", LOG)
     return None
 
-# ==========================
-# FUNÇÕES DE SMART PROCESS AUTOMATION (SPA)
-# ==========================
+# SPA Functions
 
-def criarCardSPA(title, stage_id, category_id, assigned_by_id, bitrix_webhook_url, contact_id=None, extra_fields=None, LOG=False):
+# createSpaCard
+# EN: Creates a new SPA card with basic and optional fields
+# PT: Cria um novo card SPA com campos básicos e opcionais
+def createSpaCard(title, stage_id, category_id, assigned_by_id, bitrix_webhook_url, contact_id=None, extra_fields=None, LOG=False):
     """
     Cria um novo card no pipeline do Bitrix24.
 
@@ -334,13 +459,16 @@ def criarCardSPA(title, stage_id, category_id, assigned_by_id, bitrix_webhook_ur
     # Verifica resposta e retorna o ID do card criado
     if response and "result" in response and "item" in response["result"]:
         card_id = response["result"]["item"].get("id")
-        log_detalhado(f"[CRIAR CARD SPA] Card criado com sucesso. ID: {card_id}", LOG)
+        logDetailedMessage(f"[CRIAR CARD SPA] Card criado com sucesso. ID: {card_id}", LOG)
         return card_id
 
-    log_detalhado("[CRIAR CARD SPA] Falha ao obter o ID do card criado.", LOG)
+    logDetailedMessage("[CRIAR CARD SPA] Falha ao obter o ID do card criado.", LOG)
     return None
 
-def obterCamposPersonalizadosCardSPA(entity_type_id, bitrix_webhook_url, LOG=False):
+# getSpaCustomFields
+# EN: Gets metadata for all custom fields in a SPA entity
+# PT: Obtém metadados de todos os campos personalizados de uma entidade SPA
+def getSpaCustomFields(entity_type_id, bitrix_webhook_url, LOG=False):
     """
     Obtém os metadados de todos os campos personalizados de uma entidade SPA no Bitrix24.
 
@@ -354,13 +482,16 @@ def obterCamposPersonalizadosCardSPA(entity_type_id, bitrix_webhook_url, LOG=Fal
     response = _bitrix_request("crm.item.fields", params, bitrix_webhook_url, LOG)
 
     if response and "result" in response:
-        log_detalhado(f"[OBTER CAMPOS PERSONALIZADOS] Metadados obtidos para entityTypeId {entity_type_id}.", LOG)
+        logDetailedMessage(f"[OBTER CAMPOS PERSONALIZADOS] Metadados obtidos para entityTypeId {entity_type_id}.", LOG)
         return response["result"]
 
-    log_detalhado(f"[OBTER CAMPOS PERSONALIZADOS] Falha ao obter metadados para entityTypeId {entity_type_id}.", LOG)
+    logDetailedMessage(f"[OBTER CAMPOS PERSONALIZADOS] Falha ao obter metadados para entityTypeId {entity_type_id}.", LOG)
     return None
 
-def obterCampoEspecificoCardSPA(campo_personalizado, entity_type_id, bitrix_webhook_url, LOG=False):
+# getSpaSpecificField
+# EN: Gets metadata for a specific SPA custom field
+# PT: Obtém metadados de um campo personalizado específico do SPA
+def getSpaSpecificField(campo_personalizado, entity_type_id, bitrix_webhook_url, LOG=False):
     """
     Obtém os metadados de um campo personalizado específico no Bitrix24 e, se presente,
     retorna a propriedade "items" desse campo.
@@ -381,25 +512,28 @@ def obterCampoEspecificoCardSPA(campo_personalizado, entity_type_id, bitrix_webh
 
         # Debug: log das chaves com repr para verificar espaços ou caracteres ocultos
         for key in campos:
-            log_detalhado(f"[DEBUG] Chave encontrada: {repr(key)}", LOG)
+            logDetailedMessage(f"[DEBUG] Chave encontrada: {repr(key)}", LOG)
 
         # Normaliza a comparação removendo espaços e convertendo para minúsculas
         campo_procura = campo_personalizado.strip().lower()
 
         for key in campos:
             if key.strip().lower() == campo_procura:
-                log_detalhado(f"[OBTER CAMPO ESPECÍFICO] Campo encontrado: {key}", LOG)
+                logDetailedMessage(f"[OBTER CAMPO ESPECÍFICO] Campo encontrado: {key}", LOG)
                 field_data = campos[key]
                 if "items" in field_data:
                     return field_data["items"]
                 else:
-                    log_detalhado(f"[OBTER CAMPO ESPECÍFICO] O campo {key} não possui a propriedade 'items'.", LOG)
+                    logDetailedMessage(f"[OBTER CAMPO ESPECÍFICO] O campo {key} não possui a propriedade 'items'.", LOG)
                     return field_data
 
-    log_detalhado(f"[OBTER CAMPO ESPECÍFICO] Campo {campo_personalizado} não encontrado na entidade {entity_type_id}.", LOG)
+    logDetailedMessage(f"[OBTER CAMPO ESPECÍFICO] Campo {campo_personalizado} não encontrado na entidade {entity_type_id}.", LOG)
     return None
 
-def mapearCampos(campos, metadados):
+#mapFieldValues
+# EN: Maps numeric IDs to their corresponding text values in custom fields
+# PT: Mapeia IDs numéricos para seus valores de texto correspondentes em campos personalizados
+def mapFieldValues(campos, metadados):
     """
     Mapeia valores de IDs para os valores reais de campos personalizados do Bitrix24.
 
@@ -426,7 +560,10 @@ def mapearCampos(campos, metadados):
 
     return campos
 
-def obterCamposCardSPA(entity_type_id, item_id, bitrix_webhook_url, LOG=False):
+# getSpaCardFields
+# EN: Gets all fields from a specific SPA card with value translation
+# PT: Obtém todos os campos de um card SPA específico com tradução de valores
+def getSpaCardFields(entity_type_id, item_id, bitrix_webhook_url, LOG=False):
     """
     Obtém todos os campos de um item SPA específico no Bitrix24 e traduz os valores de listas de seleção.
 
@@ -442,19 +579,22 @@ def obterCamposCardSPA(entity_type_id, item_id, bitrix_webhook_url, LOG=False):
 
     if response and "result" in response and "item" in response["result"]:
         campos = response["result"]["item"]
-        log_detalhado(f"[OBTER CAMPOS] Campos obtidos com sucesso para item ID {item_id}.", LOG)
+        logDetailedMessage(f"[OBTER CAMPOS] Campos obtidos com sucesso para item ID {item_id}.", LOG)
 
         # Obtém metadados para converter IDs para valores reais
-        metadados = obterCamposPersonalizadosCardSPA(entity_type_id, bitrix_webhook_url, LOG)
+        metadados = getSpaCustomFields(entity_type_id, bitrix_webhook_url, LOG)
         if metadados:
-            campos = mapearCampos(campos, metadados)
+            campos = mapFieldValues(campos, metadados)
 
         return campos
 
-    log_detalhado(f"[OBTER CAMPOS] Nenhum campo encontrado para item ID {item_id}.", LOG)
+    logDetailedMessage(f"[OBTER CAMPOS] Nenhum campo encontrado para item ID {item_id}.", LOG)
     return None
 
-def obterCardSPAPorContato(contact_id, entity_type_id, bitrix_webhook_url, LOG=False):
+# getSpaCardByContactId
+# EN: Finds SPA cards linked to a specific contact
+# PT: Encontra cards SPA vinculados a um contato específico
+def getSpaCardByContactId(contact_id, entity_type_id, bitrix_webhook_url, LOG=False):
     """
     Verifica se existe um Card SPA associado ao contato informado.
 
@@ -481,13 +621,16 @@ def obterCardSPAPorContato(contact_id, entity_type_id, bitrix_webhook_url, LOG=F
         items = response["result"]["items"]
         if items:
             card_id = items[0]["id"]  # Pega o primeiro card encontrado
-            log_detalhado(f"[OBTER CARD SPA] Card encontrado para contato ID {contact_id}: {card_id}", LOG)
+            logDetailedMessage(f"[OBTER CARD SPA] Card encontrado para contato ID {contact_id}: {card_id}", LOG)
             return card_id
 
-    log_detalhado(f"[OBTER CARD SPA] Nenhum card encontrado para contato ID {contact_id}.", LOG)
+    logDetailedMessage(f"[OBTER CARD SPA] Nenhum card encontrado para contato ID {contact_id}.", LOG)
     return None
 
-def moverEtapaCardSPA(stage_id, card_id, entity_type_id, bitrix_webhook_url, LOG=False):
+#moveSpaCardStage
+# EN: Moves a card to a different stage in the pipeline
+# PT: Move um card para um estágio diferente no pipeline
+def moveSpaCardStage(stage_id, card_id, entity_type_id, bitrix_webhook_url, LOG=False):
     """
     Move um Card SPA para uma nova etapa no Bitrix24.
 
@@ -511,116 +654,375 @@ def moverEtapaCardSPA(stage_id, card_id, entity_type_id, bitrix_webhook_url, LOG
     response = _bitrix_request("crm.item.update", params, bitrix_webhook_url, LOG)
 
     if response and "result" in response:
-        log_detalhado(f"[MOVER ETAPA SPA] Card ID {card_id} movido com sucesso para stageId {stage_id}.", LOG)
+        logDetailedMessage(f"[MOVER ETAPA SPA] Card ID {card_id} movido com sucesso para stageId {stage_id}.", LOG)
         return True
 
-    log_detalhado(f"[MOVER ETAPA SPA] Falha ao mover o Card ID {card_id} para stageId {stage_id}.", LOG)
+    logDetailedMessage(f"[MOVER ETAPA SPA] Falha ao mover o Card ID {card_id} para stageId {stage_id}.", LOG)
     return False
 
-def listarCardsSPA(bitrix_webhook_url, entity_type_id, category_id=None, stage_id=None, LOG=False):
+# listSpaCards
+# EN: Lists all cards in an SPA with optional filters and pagination
+# PT: Lista todos os cards em um SPA com filtros opcionais e paginação
+def listSpaCards(bitrix_webhook_url, entity_type_id, category_id=None, stage_id=None, returnFilter=None, LOG=False):
     """
-    Lista todos os cards de um SPA no Bitrix24, aplicando filtros opcionais e lidando corretamente com paginação.
+    Lista todos os itens de um SPA no Bitrix24, lidando corretamente com paginação.
 
     :param bitrix_webhook_url: URL do webhook do Bitrix24.
     :param entity_type_id: ID do tipo de entidade (SPA).
-    :param category_id: (Opcional) ID da categoria para filtrar os cards.
-    :param stage_id: (Opcional) ID do estágio para filtrar os cards.
+    :param category_id: (Opcional) ID da categoria para filtrar.
+    :param stage_id: (Opcional) ID do estágio para filtrar.
+    :param returnFilter: (Opcional) Lista de campos a serem retornados. Se None, retorna todos os campos.
     :param LOG: Se True, ativa logs detalhados.
-
-    :return: Lista de dicionários contendo ID e title de cada card encontrado.
+    :return: Lista de dicionários contendo os itens encontrados.
     """
 
-    # Filtros opcionais
-    filtro = {}
-    if category_id:
-        filtro["categoryId"] = category_id
-    if stage_id:
-        filtro["stageId"] = stage_id
+    itens = []
+    start = 0
+    page_size = 50
 
-    cards = []
-    start = 0  # Controle de paginação
+    # Define campos padrão caso returnFilter seja None
+    default_fields = [
+        "id", "title", "categoryId", "createdTime", "assignedById",
+        "stageId", "companyId", "contactId"
+    ]
+
+    select_fields = returnFilter if returnFilter is not None else default_fields
+
+    filter_params = {}
+    if category_id is not None:
+        filter_params["categoryId"] = category_id
+    if stage_id is not None:
+        filter_params["stageId"] = stage_id
 
     while True:
         params = {
             "entityTypeId": entity_type_id,
-            "filter": filtro,
-            "select": ["id", "title"],
+            "select": select_fields,
             "start": start
         }
+
+        if filter_params:
+            params["filter"] = filter_params
 
         response = _bitrix_request("crm.item.list", params, bitrix_webhook_url, LOG)
 
         if response and "result" in response and "items" in response["result"]:
-            items = response["result"]["items"]
+            items_page = response["result"]["items"]
 
-            if not items:
-                log_detalhado("[LISTAR CARDS SPA] Nenhum card encontrado.", LOG)
-                return cards  # Retorna lista vazia se não houver registros
+            if not items_page:
+                logDetailedMessage("[LISTAR ITENS SPA] Nenhum item encontrado.", LOG)
+                break
 
-            cards.extend(items)
+            # Se returnFilter for None, adiciona todos os campos
+            # Se não, filtra apenas os campos solicitados
+            if returnFilter is None:
+                itens.extend(items_page)
+            else:
+                filtered_items = []
+                for item in items_page:
+                    filtered_item = {field: item.get(field) for field in returnFilter}
+                    filtered_items.append(filtered_item)
+                itens.extend(filtered_items)
 
-            # Atualiza paginação
             next_start = response["result"].get("next")
-            if next_start is None:
-                break  # Sai do loop se não houver mais páginas
-            start = next_start  # Define o próximo ponto de início da paginação
+            if next_start is not None:
+                start = next_start
+            else:
+                if len(items_page) < page_size:
+                    logDetailedMessage(f"[LISTAR ITENS SPA] Paginação finalizada. Total coletado: {len(itens)}", LOG)
+                    break
+                start += page_size
 
-            log_detalhado(f"[LISTAR CARDS SPA] Total de cards coletados até agora: {len(cards)}", LOG)
-
+            logDetailedMessage(f"[LISTAR ITENS SPA] Coletados {len(itens)} itens. Continuando a partir de {start}.", LOG)
         else:
-            log_detalhado("[LISTAR CARDS SPA] Falha ao obter os cards ou resposta vazia.", LOG)
-            return cards  # Retorna os cards coletados até o momento
+            logDetailedMessage("[LISTAR ITENS SPA] Falha ao obter os itens ou resposta vazia.", LOG)
+            break
 
-    return cards
+    return itens
 
-def listAllSPA(bitrix_webhook_url, LOG=False):
+# deleteSpaCard
+# EN: Deletes a card and optionally its linked contact and company
+# PT: Exclui um card e opcionalmente seu contato e empresa vinculados
+def deleteSpaCard(bitrix_webhook_url, entity_type_id, card_id, excludeAll=False, LOG=False):
+
     """
-    Obtém a lista de entidades do CRM do Bitrix24.
+    Exclui um card SPA e opcionalmente seus dados relacionados (contato e empresa).
 
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param entity_type_id: ID do tipo de entidade (SPA).
+    :param card_id: ID do card a ser excluído.
+    :param excludeAll: Se True, exclui também o contato e empresa vinculados.
+    :param LOG: Se True, ativa logs detalhados.
+    :return: True se a exclusão for bem-sucedida, False caso contrário.
+    """
+    # Primeiro, obtém os dados do card se excludeAll=True
+    if excludeAll:
+        params = {
+            "entityTypeId": entity_type_id,
+            "id": card_id,
+            "select": ["contactId", "companyId"]
+        }
+
+        card_data = _bitrix_request("crm.item.get", params, bitrix_webhook_url, LOG)
+
+        if card_data and "result" in card_data and "item" in card_data["result"]:
+            contact_id = card_data["result"]["item"].get("contactId")
+            company_id = card_data["result"]["item"].get("companyId")
+
+            logDetailedMessage(f"[EXCLUIR CARD SPA] Dados vinculados encontrados - Contato: {contact_id}, Empresa: {company_id}", LOG)
+
+    # Exclui o card
+    params = {
+        "entityTypeId": entity_type_id,
+        "id": card_id
+    }
+
+    response = _bitrix_request("crm.item.delete", params, bitrix_webhook_url, LOG)
+
+    if not response or "result" not in response:
+        logDetailedMessage(f"[EXCLUIR CARD SPA] Falha ao excluir card ID {card_id}", LOG)
+        return False
+
+    logDetailedMessage(f"[EXCLUIR CARD SPA] Card ID {card_id} excluído com sucesso", LOG)
+
+    # Se excludeAll=True, exclui contato e empresa
+    if excludeAll and card_data and "result" in card_data:
+        if contact_id:
+            contact_response = _bitrix_request("crm.contact.delete", {"id": contact_id}, bitrix_webhook_url, LOG)
+            if contact_response and "result" in contact_response:
+                logDetailedMessage(f"[EXCLUIR CARD SPA] Contato ID {contact_id} excluído com sucesso", LOG)
+            else:
+                logDetailedMessage(f"[EXCLUIR CARD SPA] Falha ao excluir contato ID {contact_id}", LOG)
+
+        if company_id:
+            company_response = _bitrix_request("crm.company.delete", {"id": company_id}, bitrix_webhook_url, LOG)
+            if company_response and "result" in company_response:
+                logDetailedMessage(f"[EXCLUIR CARD SPA] Empresa ID {company_id} excluída com sucesso", LOG)
+            else:
+                logDetailedMessage(f"[EXCLUIR CARD SPA] Falha ao excluir empresa ID {company_id}", LOG)
+
+    return True
+
+# clearSpaCardFields
+# EN: Clears the content of specific fields in a SPA card
+# PT: Limpa o conteúdo de campos específicos em um card SPA
+def clearSpaCardFields(bitrix_webhook_url, entity_type_id, card_id, campos=None, LOG=False):
+    """
+    Limpa o conteúdo de campos específicos de um card SPA.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param entity_type_id: ID do tipo de entidade (SPA).
+    :param card_id: ID do card a ser modificado.
+    :param campos: Lista de campos a serem limpos (ex: ["ufCrm41_1737980095947", "ufCrm41_173798041242"]).
+    :param LOG: Se True, ativa logs detalhados.
+    :return: True se a limpeza for bem-sucedida, False caso contrário.
+    """
+    if not campos:
+        logDetailedMessage("[LIMPAR CAMPOS CARD SPA] Nenhum campo especificado para limpeza.", LOG)
+        return False
+
+    # Cria um dicionário com os campos a serem limpos
+    fields_to_clear = {}
+    for campo in campos:
+        fields_to_clear[campo] = None  # Define o valor como None para limpar o campo
+
+    # Prepara os parâmetros para a requisição
+    params = {
+        "entityTypeId": entity_type_id,
+        "id": card_id,
+        "fields": fields_to_clear
+    }
+
+    # Faz a requisição para atualizar os campos
+    response = _bitrix_request("crm.item.update", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        logDetailedMessage(f"[LIMPAR CAMPOS CARD SPA] Campos {campos} limpos com sucesso no card ID {card_id}", LOG)
+        return True
+
+    logDetailedMessage(f"[LIMPAR CAMPOS CARD SPA] Falha ao limpar campos {campos} no card ID {card_id}", LOG)
+    return False
+
+# updateSpaCardFields
+# EN: Updates specific fields in a SPA card with new values
+# PT: Atualiza campos específicos em um card SPA com novos valores
+def updateSpaCardFields(bitrix_webhook_url, entity_type_id, card_id, campos=None, data=None, LOG=False):
+    """
+    Insere dados em campos específicos de um card SPA.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param entity_type_id: ID do tipo de entidade (SPA).
+    :param card_id: ID do card a ser modificado.
+    :param campos: Lista de campos a serem preenchidos (ex: ["ufCrm41_1737980095947", "ufCrm41_173798041242"]).
+    :param data: Lista de valores a serem inseridos, na mesma ordem dos campos.
+    :param LOG: Se True, ativa logs detalhados.
+    :return: True se a inserção for bem-sucedida, False caso contrário.
+    """
+    if not campos or not data or len(campos) != len(data):
+        logDetailedMessage("[INSERIR CAMPOS CARD SPA] Erro: campos e dados devem ter o mesmo tamanho.", LOG)
+        return False
+
+    # Cria um dicionário combinando campos com seus respectivos valores
+    fields_to_update = {}
+    for campo, valor in zip(campos, data):
+        fields_to_update[campo] = valor
+
+    # Prepara os parâmetros para a requisição
+    params = {
+        "entityTypeId": entity_type_id,
+        "id": card_id,
+        "fields": fields_to_update
+    }
+
+    # Faz a requisição para atualizar os campos
+    response = _bitrix_request("crm.item.update", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        logDetailedMessage(f"[INSERIR CAMPOS CARD SPA] Dados inseridos com sucesso no card ID {card_id}", LOG)
+        logDetailedMessage(f"[INSERIR CAMPOS CARD SPA] Campos atualizados: {fields_to_update}", LOG)
+        return True
+
+    logDetailedMessage(f"[INSERIR CAMPOS CARD SPA] Falha ao inserir dados no card ID {card_id}", LOG)
+    return False
+
+# Employees
+
+# listEmployees
+# EN: Lists all employees registered in Bitrix24 with their details
+# PT: Lista todos os funcionários cadastrados no Bitrix24 com seus detalhes
+def listEmployees(bitrix_webhook_url, returnFilter=None, LOG=False):
+    """
+    Obtém a lista de todos os funcionários cadastrados no Bitrix24.
+
+    Esta função retorna informações detalhadas sobre os funcionários,
+    como ID, nome, email, departamento, cargo, etc.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param returnFilter: (Opcional) Lista de campos específicos a serem retornados.
+                        Se None, retorna todos os campos disponíveis.
+    :param LOG: Se True, ativa logs detalhados.
+    :return: Lista de dicionários contendo os dados dos funcionários.
+    """
+    employees = []
+    start = 0
+    page_size = 50
+
+    # Define campos padrão caso returnFilter seja None
+    default_fields = [
+        "ID", "NAME", "LAST_NAME", "EMAIL", "WORK_POSITION",
+        "PERSONAL_PHONE", "WORK_PHONE", "DEPARTMENT", "ACTIVE",
+        "DATE_REGISTER", "PERSONAL_PHOTO"
+    ]
+
+    select_fields = returnFilter if returnFilter is not None else default_fields
+
+    while True:
+        params = {
+            "FILTER": {"ACTIVE": True},  # Busca apenas funcionários ativos por padrão
+            "SELECT": select_fields,
+            "start": start
+        }
+
+        response = _bitrix_request("user.get", params, bitrix_webhook_url, LOG)
+
+        if response and "result" in response:
+            employees_page = response["result"]
+
+            if not employees_page:
+                logDetailedMessage("[LISTAR FUNCIONÁRIOS] Nenhum funcionário encontrado.", LOG)
+                break
+
+            # Se returnFilter for None, adiciona todos os campos
+            # Se não, filtra apenas os campos solicitados
+            if returnFilter is None:
+                employees.extend(employees_page)
+            else:
+                filtered_items = []
+                for employee in employees_page:
+                    filtered_employee = {field: employee.get(field) for field in returnFilter}
+                    filtered_items.append(filtered_employee)
+                employees.extend(filtered_items)
+
+            # Verifica se há mais páginas
+            if len(employees_page) < page_size:
+                logDetailedMessage(f"[LISTAR FUNCIONÁRIOS] Paginação finalizada. Total coletado: {len(employees)}", LOG)
+                break
+
+            start += page_size
+            logDetailedMessage(f"[LISTAR FUNCIONÁRIOS] Coletados {len(employees)} funcionários. Continuando a partir de {start}.", LOG)
+        else:
+            logDetailedMessage("[LISTAR FUNCIONÁRIOS] Falha ao obter os funcionários ou resposta vazia.", LOG)
+            break
+
+    return employees
+
+# Leads
+
+# getLeadFields
+# EN: Retrieves all fields from a specific lead
+# PT: Obtém todos os campos de um lead específico
+def getLeadFields(lead_id, bitrix_webhook_url, LOG=False):
+    """
+    Obtém todos os campos de um lead específico no Bitrix24.
+
+    Esta função retorna todos os campos associados a um lead,
+    incluindo campos padrão e personalizados.
+
+    :param lead_id: ID do lead a ser consultado.
     :param bitrix_webhook_url: URL base do webhook do Bitrix24.
     :param LOG: Se True, ativa logs detalhados.
 
-    :return: Lista de dicionários contendo 'title' e 'entityTypeId' das entidades.
+    :return: Dicionário com os campos do lead ou None em caso de erro.
     """
-    method = "crm.type.list"  # Método para listar os tipos de entidades
-    response = _bitrix_request(method, {}, bitrix_webhook_url, LOG)
-
-    # Verificando se a resposta é válida e contém os dados esperados
-    if response and "result" in response and "types" in response["result"]:
-        entidades = []
-
-        for entity in response["result"]["types"]:
-            entidade_info = {
-                "title": entity.get("title"),
-                "entityTypeId": entity.get("entityTypeId")
-            }
-            entidades.append(entidade_info)
-
-        log_detalhado(f"[FIND ENTERPRISE] {len(entidades)} entidades encontradas.", LOG)
-        return entidades  # Retorna a lista formatada
-
-    log_detalhado("[FIND ENTERPRISE] Nenhuma entidade encontrada ou formato inesperado da resposta.", LOG)
-    return None  # Retorna None em caso de erro
-
-def obterTypeId(bitrixWebhookUrl, LOG=False):
-    """
-    Obtém todos os valores distintos do campo TYPE_ID dos contatos no Bitrix24 e seus significados.
-
-    Essa função consulta a API `crm.status.list` para mapear os IDs dos TYPE_IDs aos seus respectivos valores.
-
-    :param bitrixWebhookUrl: URL base do webhook do Bitrix24.
-    :param LOG: Se True, ativa logs detalhados para depuração.
-
-    :return: Dicionário { ID: "Descrição" } contendo todos os valores possíveis do TYPE_ID.
-    """
-    params = {"FILTER": {"ENTITY_ID": "CONTACT_TYPE"}}
-
-    response = _bitrix_request("crm.status.list", params, bitrixWebhookUrl, LOG)
+    params = {"id": lead_id}
+    response = _bitrix_request("crm.lead.get", params, bitrix_webhook_url, LOG)
 
     if response and "result" in response:
-        typeIdMap = {item["STATUS_ID"]: item["NAME"] for item in response["result"]}
-        log_detalhado(f"[OBTER TYPE_ID] Mapeamento obtido: {typeIdMap}", LOG)
-        return typeIdMap
+        lead = response["result"]
+        logDetailedMessage(f"[OBTER CAMPOS LEAD] Campos obtidos com sucesso para lead ID {lead_id}.", LOG)
+        return lead
 
-    log_detalhado("[OBTER TYPE_ID] Erro ao buscar os metadados do campo TYPE_ID via crm.status.list.", LOG)
-    return {}
+    logDetailedMessage(f"[OBTER CAMPOS LEAD] Nenhum lead encontrado para ID {lead_id}.", LOG)
+    return None
+
+# createLead
+# EN: Creates a new lead with optional fields
+# PT: Cria um novo lead com campos opcionais
+def createLead(bitrix_webhook_url, fields=None, LOG=False):
+    """
+    Cria um novo lead no Bitrix24.
+
+    Esta função permite criar um lead vazio ou com campos específicos.
+    Os campos podem incluir informações como título, nome, email, telefone, etc.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param fields: (Opcional) Dicionário com campos e valores para o lead.
+                  Exemplo: {
+                      "NAME": "João Silva",
+                      "EMAIL": [{"VALUE": "joao@email.com", "VALUE_TYPE": "WORK"}],
+                      "PHONE": [{"VALUE": "11999999999", "VALUE_TYPE": "WORK"}],
+                      "COMMENTS": "Observações do lead"
+                  }
+    :param LOG: Se True, ativa logs detalhados.
+    :return: ID do lead criado em caso de sucesso, None em caso de erro.
+    """
+    # Prepara os parâmetros para a requisição
+    params = {
+        "fields": fields if fields else {}
+    }
+
+    # Remove o título se existir para usar o padrão do Bitrix
+    if fields and "TITLE" in fields:
+        del params["fields"]["TITLE"]
+
+    # Faz a requisição para criar o lead
+    response = _bitrix_request("crm.lead.add", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        lead_id = response["result"]
+        logDetailedMessage(f"[CRIAR LEAD] Lead criado com sucesso. ID: {lead_id}", LOG)
+        return lead_id
+
+    logDetailedMessage("[CRIAR LEAD] Falha ao criar lead.", LOG)
+    return None
+
