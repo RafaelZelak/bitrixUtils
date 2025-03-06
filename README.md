@@ -13,10 +13,39 @@ pip install bitrixUtils
 
 ## 🚀 Quick Start
 
-```python
-from bitrixUtils import core
+### Import Methods
+**Method 1: Direct Function Import**
 
-BITRIX_WEBHOOK_URL = "https://your-domain.bitrix24.com/rest/XXX/YYYYY/"
+Import specific functions directly from the library. This is recommended when you only need certain functions:
+
+```python
+from bitrixUtils import createContact, updateSpaCardFields, listEmployees
+
+# Usage example
+createContact(contact_data, cpf_field, webhook_url)
+updateSpaCardFields(deal_id, fields_to_update, webhook_url)
+```
+**Method 2: Namespace Import**
+
+Import the entire library with a shorter alias. This helps maintain clean namespace while accessing all functionality:
+
+```python
+import bitrixUtils as bx
+
+# Usage example
+bx.createContact(contact_data, cpf_field, webhook_url)
+bx.updateSpaCardFields(deal_id, fields_to_update, webhook_url)
+```
+
+**Method 3: Import All**
+
+Import all functions directly into the current namespace. Use with caution as it might lead to naming conflicts:
+```python
+from bitrixUtils import *
+
+# Usage example
+createContact(contact_data, cpf_field, webhook_url)
+updateSpaCardFields(deal_id, fields_to_update, webhook_url)
 ```
 
 ## 🔑 Understanding Bitrix24 API
