@@ -414,6 +414,46 @@ def getSpecificContactField(campo_personalizado, bitrix_webhook_url, LOG=False):
     logDetailedMessage(f"[OBTER CAMPO ESPECÍFICO CONTATO] Campo {campo_personalizado} não encontrado nos contatos.", LOG)
     return None
 
+# updateContactFields
+# EN: Updates specific fields in a contact with new values
+# PT: Atualiza campos específicos em um contato com novos valores
+def updateContactFields(bitrix_webhook_url, contact_id, campos=None, data=None, LOG=False):
+    """
+    Atualiza campos específicos de um contato no Bitrix24.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param contact_id: ID do contato a ser modificado.
+    :param campos: Lista de campos a serem preenchidos (ex: ["EMAIL", "PHONE", "UF_CRM_123"]).
+    :param data: Lista de valores a serem inseridos, na mesma ordem dos campos.
+    :param LOG: Se True, ativa logs detalhados.
+    :return: True se a atualização for bem-sucedida, False caso contrário.
+    """
+    if not campos or not data or len(campos) != len(data):
+        logDetailedMessage("[ATUALIZAR CAMPOS CONTATO] Erro: campos e dados devem ter o mesmo tamanho.", LOG)
+        return False
+
+    # Cria um dicionário combinando campos com seus respectivos valores
+    fields_to_update = {}
+    for campo, valor in zip(campos, data):
+        fields_to_update[campo] = valor
+
+    # Prepara os parâmetros para a requisição
+    params = {
+        "id": contact_id,
+        "fields": fields_to_update
+    }
+
+    # Faz a requisição para atualizar os campos
+    response = _bitrix_request("crm.contact.update", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        logDetailedMessage(f"[ATUALIZAR CAMPOS CONTATO] Dados atualizados com sucesso no contato ID {contact_id}", LOG)
+        logDetailedMessage(f"[ATUALIZAR CAMPOS CONTATO] Campos atualizados: {fields_to_update}", LOG)
+        return True
+
+    logDetailedMessage(f"[ATUALIZAR CAMPOS CONTATO] Falha ao atualizar dados no contato ID {contact_id}", LOG)
+    return False
+
 # SPA Functions
 
 # createSpaCard
@@ -665,34 +705,16 @@ def moveSpaCardStage(stage_id, card_id, entity_type_id, bitrix_webhook_url, LOG=
 # PT: Lista todos os cards em um SPA com filtros opcionais e paginação
 def listSpaCards(bitrix_webhook_url, entity_type_id, category_id=None, stage_id=None, returnFilter=None, LOG=False):
     """
-    Lista todos os itens de um SPA no Bitrix24, lidando corretamente com paginação.
-
-    :param bitrix_webhook_url: URL do webhook do Bitrix24.
-    :param entity_type_id: ID do tipo de entidade (SPA).
-    :param category_id: (Opcional) ID da categoria para filtrar.
-    :param stage_id: (Opcional) ID do estágio para filtrar.
-    :param returnFilter: (Opcional) Lista de campos a serem retornados. Se None, retorna todos os campos.
-    :param LOG: Se True, ativa logs detalhados.
-    :return: Lista de dicionários contendo os itens encontrados.
+    Lista TODOS os itens de um SPA no Bitrix24, sem limitações.
     """
-
     itens = []
     start = 0
-    page_size = 50
+    total_items = None
 
     # Define campos padrão caso returnFilter seja None
-    default_fields = [
-        "id", "title", "categoryId", "createdTime", "assignedById",
-        "stageId", "companyId", "contactId"
-    ]
-
+    default_fields = ["id", "title", "categoryId", "createdTime", "assignedById",
+                     "stageId", "companyId", "contactId"]
     select_fields = returnFilter if returnFilter is not None else default_fields
-
-    filter_params = {}
-    if category_id is not None:
-        filter_params["categoryId"] = category_id
-    if stage_id is not None:
-        filter_params["stageId"] = stage_id
 
     while True:
         params = {
@@ -701,42 +723,50 @@ def listSpaCards(bitrix_webhook_url, entity_type_id, category_id=None, stage_id=
             "start": start
         }
 
-        if filter_params:
-            params["filter"] = filter_params
+        # Adiciona filtros se especificados
+        if category_id is not None or stage_id is not None:
+            params["filter"] = {}
+            if category_id is not None:
+                params["filter"]["categoryId"] = category_id
+            if stage_id is not None:
+                params["filter"]["stageId"] = stage_id
 
         response = _bitrix_request("crm.item.list", params, bitrix_webhook_url, LOG)
 
-        if response and "result" in response and "items" in response["result"]:
-            items_page = response["result"]["items"]
-
-            if not items_page:
-                logDetailedMessage("[LISTAR ITENS SPA] Nenhum item encontrado.", LOG)
-                break
-
-            # Se returnFilter for None, adiciona todos os campos
-            # Se não, filtra apenas os campos solicitados
-            if returnFilter is None:
-                itens.extend(items_page)
-            else:
-                filtered_items = []
-                for item in items_page:
-                    filtered_item = {field: item.get(field) for field in returnFilter}
-                    filtered_items.append(filtered_item)
-                itens.extend(filtered_items)
-
-            next_start = response["result"].get("next")
-            if next_start is not None:
-                start = next_start
-            else:
-                if len(items_page) < page_size:
-                    logDetailedMessage(f"[LISTAR ITENS SPA] Paginação finalizada. Total coletado: {len(itens)}", LOG)
-                    break
-                start += page_size
-
-            logDetailedMessage(f"[LISTAR ITENS SPA] Coletados {len(itens)} itens. Continuando a partir de {start}.", LOG)
-        else:
-            logDetailedMessage("[LISTAR ITENS SPA] Falha ao obter os itens ou resposta vazia.", LOG)
+        if not response or "result" not in response:
             break
+
+        items_page = response["result"].get("items", [])
+        if not items_page:
+            break
+
+        # Atualiza o total de itens se ainda não foi definido
+        if total_items is None and "total" in response["result"]:
+            total_items = response["result"]["total"]
+
+        # Adiciona itens encontrados
+        if returnFilter is None:
+            itens.extend(items_page)
+        else:
+            filtered_items = [{field: item.get(field) for field in returnFilter}
+                            for item in items_page]
+            itens.extend(filtered_items)
+
+        if LOG:
+            logDetailedMessage(f"[LISTAR ITENS SPA] Coletados {len(itens)} de {total_items} itens. Continuando a partir de {start}.", LOG)
+
+        # Incrementa o start para a próxima página
+        start += len(items_page)
+
+        # Verifica se já coletamos todos os itens
+        if total_items and len(itens) >= total_items:
+            break
+
+        # Pequena pausa para evitar sobrecarga na API
+        time.sleep(0.1)
+
+    if LOG:
+        logDetailedMessage(f"[LISTAR ITENS SPA] Paginação finalizada. Total coletado: {len(itens)}", LOG)
 
     return itens
 
