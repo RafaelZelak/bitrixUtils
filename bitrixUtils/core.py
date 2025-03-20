@@ -1127,12 +1127,11 @@ def getCompanyFields(company_id, bitrix_webhook_url, LOG=False):
 # clearCompanyFields
 # EN: Clears the content of specific fields in a company
 # PT: Limpa o conteúdo de campos específicos em uma empresa
-def clearCompanyFields(bitrix_webhook_url, entity_type_id, company_id, campos=None, LOG=False):
+def clearCompanyFields(bitrix_webhook_url, company_id, campos=None, LOG=False):
     """
     Limpa o conteúdo de campos específicos de uma empresa.
 
     :param bitrix_webhook_url: URL do webhook do Bitrix24.
-    :param entity_type_id: ID do tipo de entidade (empresa).
     :param company_id: ID da empresa a ser modificada.
     :param campos: Lista de campos a serem limpos (ex: ["ufCrm41_1737980095947", "ufCrm41_173798041242"]).
     :param LOG: Se True, ativa logs detalhados.
@@ -1149,13 +1148,12 @@ def clearCompanyFields(bitrix_webhook_url, entity_type_id, company_id, campos=No
 
     # Prepara os parâmetros para a requisição
     params = {
-        "entityTypeId": entity_type_id,
         "id": company_id,
         "fields": fields_to_clear
     }
 
     # Faz a requisição para atualizar os campos
-    response = _bitrix_request("crm.item.update", params, bitrix_webhook_url, LOG)
+    response = _bitrix_request("crm.company.update", params, bitrix_webhook_url, LOG)
 
     if response and "result" in response:
         logDetailedMessage(f"[LIMPAR CAMPOS EMPRESA] Campos {campos} limpos com sucesso na empresa ID {company_id}", LOG)
@@ -1167,12 +1165,11 @@ def clearCompanyFields(bitrix_webhook_url, entity_type_id, company_id, campos=No
 # updateCompanyFields
 # EN: Updates specific fields in a company with new values
 # PT: Atualiza campos específicos em uma empresa com novos valores
-def updateCompanyFields(bitrix_webhook_url, entity_type_id, company_id, campos=None, data=None, LOG=False):
+def updateCompanyFields(bitrix_webhook_url, company_id, campos=None, data=None, LOG=False):
     """
     Insere dados em campos específicos de uma empresa.
 
     :param bitrix_webhook_url: URL do webhook do Bitrix24.
-    :param entity_type_id: ID do tipo de entidade (empresa).
     :param company_id: ID da empresa a ser modificada.
     :param campos: Lista de campos a serem preenchidos (ex: ["ufCrm41_1737980095947", "ufCrm41_173798041242"]).
     :param data: Lista de valores a serem inseridos, na mesma ordem dos campos.
@@ -1190,13 +1187,12 @@ def updateCompanyFields(bitrix_webhook_url, entity_type_id, company_id, campos=N
 
     # Prepara os parâmetros para a requisição
     params = {
-        "entityTypeId": entity_type_id,
         "id": company_id,
         "fields": fields_to_update
     }
 
     # Faz a requisição para atualizar os campos
-    response = _bitrix_request("crm.item.update", params, bitrix_webhook_url, LOG)
+    response = _bitrix_request("crm.company.update", params, bitrix_webhook_url, LOG)
 
     if response and "result" in response:
         logDetailedMessage(f"[INSERIR CAMPOS EMPRESA] Dados inseridos com sucesso na empresa ID {company_id}", LOG)
@@ -1205,3 +1201,40 @@ def updateCompanyFields(bitrix_webhook_url, entity_type_id, company_id, campos=N
 
     logDetailedMessage(f"[INSERIR CAMPOS EMPRESA] Falha ao inserir dados na empresa ID {company_id}", LOG)
     return False
+
+# searchCompanyByField
+# EN: Searches for companies that have a specified value in a given field and returns selected fields
+# PT: Busca empresas que possuam um valor especificado em um campo informado e retorna os campos selecionados
+def searchCompanyByField(bitrix_webhook_url, search_field, value, select_fields=None, LOG=False):
+    """
+    Searches for companies that have the specified value in the given field.
+    If select_fields is None, returns all available fields including custom fields.
+
+    :param bitrix_webhook_url: URL of the Bitrix24 webhook.
+    :param search_field: The field name to use for the search (e.g., "ID" or "ufCrm5_1737545372279").
+    :param value: The value to search for in the specified field.
+    :param select_fields: List of field names to return. If None, returns all fields.
+    :param LOG: If True, detailed logs are enabled.
+    :return: A list of companies matching the search criteria with the selected fields, or None if the search fails.
+    """
+    if select_fields is None:
+        select_fields = ["*", "UF_*"]
+
+    params = {
+        "filter": {
+            search_field: value
+        },
+        "select": select_fields
+    }
+
+    logDetailedMessage(f"[SEARCH COMPANY] Searching for companies where {search_field} equals {value}.", LOG)
+
+    # Make the request to fetch the companies
+    response = _bitrix_request("crm.company.list", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        logDetailedMessage(f"[SEARCH COMPANY] Successfully found companies for {search_field} = {value}.", LOG)
+        return response["result"]
+
+    logDetailedMessage(f"[SEARCH COMPANY] Failed to find companies for {search_field} = {value}.", LOG)
+    return None
