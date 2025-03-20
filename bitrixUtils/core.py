@@ -1056,3 +1056,152 @@ def createLead(bitrix_webhook_url, fields=None, LOG=False):
     logDetailedMessage("[CRIAR LEAD] Falha ao criar lead.", LOG)
     return None
 
+# Company
+
+# createCompany
+# EN: Creates a new company with optional fields
+# PT: Cria uma nova empresa com campos opcionais
+def createCompany(bitrix_webhook_url, fields=None, LOG=False):
+    """
+    Cria uma nova empresa no Bitrix24.
+
+    Esta função permite criar uma empresa vazia ou com campos específicos.
+    Os campos podem incluir informações como título, telefone, email, endereço, etc.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param fields: (Opcional) Dicionário com campos e valores para a empresa.
+                  Exemplo: {
+                      "TITLE": "Empresa XYZ",
+                      "COMPANY_TYPE": "CUSTOMER",
+                      "EMAIL": [{"VALUE": "contato@empresa.com", "VALUE_TYPE": "WORK"}],
+                      "PHONE": [{"VALUE": "11999999999", "VALUE_TYPE": "WORK"}],
+                      "INDUSTRY": "IT",
+                      "COMMENTS": "Observações da empresa"
+                  }
+    :param LOG: Se True, ativa logs detalhados.
+    :return: ID da empresa criada em caso de sucesso, None em caso de erro.
+    """
+    # Prepara os parâmetros para a requisição
+    params = {
+        "fields": fields if fields else {}
+    }
+
+    # Faz a requisição para criar a empresa
+    response = _bitrix_request("crm.company.add", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        company_id = response["result"]
+        logDetailedMessage(f"[CRIAR EMPRESA] Empresa criada com sucesso. ID: {company_id}", LOG)
+        return company_id
+
+    logDetailedMessage("[CRIAR EMPRESA] Falha ao criar empresa.", LOG)
+    return None
+
+# getCompanyFields
+# EN: Retrieves all fields from a specific company
+# PT: Obtém todos os campos de uma empresa específica
+def getCompanyFields(company_id, bitrix_webhook_url, LOG=False):
+    """
+    Obtém todos os campos de uma empresa específica no Bitrix24.
+
+    Esta função retorna todos os campos associados a uma empresa,
+    incluindo campos padrão e personalizados.
+
+    :param company_id: ID da empresa a ser consultada.
+    :param bitrix_webhook_url: URL base do webhook do Bitrix24.
+    :param LOG: Se True, ativa logs detalhados.
+
+    :return: Dicionário com os campos da empresa ou None em caso de erro.
+    """
+    params = {"id": company_id}
+    response = _bitrix_request("crm.company.get", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        company = response["result"]
+        logDetailedMessage(f"[OBTER CAMPOS EMPRESA] Campos obtidos com sucesso para empresa ID {company_id}.", LOG)
+        return company
+
+    logDetailedMessage(f"[OBTER CAMPOS EMPRESA] Nenhuma empresa encontrada para ID {company_id}.", LOG)
+    return None
+
+# clearCompanyFields
+# EN: Clears the content of specific fields in a company
+# PT: Limpa o conteúdo de campos específicos em uma empresa
+def clearCompanyFields(bitrix_webhook_url, entity_type_id, company_id, campos=None, LOG=False):
+    """
+    Limpa o conteúdo de campos específicos de uma empresa.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param entity_type_id: ID do tipo de entidade (empresa).
+    :param company_id: ID da empresa a ser modificada.
+    :param campos: Lista de campos a serem limpos (ex: ["ufCrm41_1737980095947", "ufCrm41_173798041242"]).
+    :param LOG: Se True, ativa logs detalhados.
+    :return: True se a limpeza for bem-sucedida, False caso contrário.
+    """
+    if not campos:
+        logDetailedMessage("[LIMPAR CAMPOS EMPRESA] Nenhum campo especificado para limpeza.", LOG)
+        return False
+
+    # Cria um dicionário com os campos a serem limpos
+    fields_to_clear = {}
+    for campo in campos:
+        fields_to_clear[campo] = None  # Define o valor como None para limpar o campo
+
+    # Prepara os parâmetros para a requisição
+    params = {
+        "entityTypeId": entity_type_id,
+        "id": company_id,
+        "fields": fields_to_clear
+    }
+
+    # Faz a requisição para atualizar os campos
+    response = _bitrix_request("crm.item.update", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        logDetailedMessage(f"[LIMPAR CAMPOS EMPRESA] Campos {campos} limpos com sucesso na empresa ID {company_id}", LOG)
+        return True
+
+    logDetailedMessage(f"[LIMPAR CAMPOS EMPRESA] Falha ao limpar campos {campos} na empresa ID {company_id}", LOG)
+    return False
+
+# updateCompanyFields
+# EN: Updates specific fields in a company with new values
+# PT: Atualiza campos específicos em uma empresa com novos valores
+def updateCompanyFields(bitrix_webhook_url, entity_type_id, company_id, campos=None, data=None, LOG=False):
+    """
+    Insere dados em campos específicos de uma empresa.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param entity_type_id: ID do tipo de entidade (empresa).
+    :param company_id: ID da empresa a ser modificada.
+    :param campos: Lista de campos a serem preenchidos (ex: ["ufCrm41_1737980095947", "ufCrm41_173798041242"]).
+    :param data: Lista de valores a serem inseridos, na mesma ordem dos campos.
+    :param LOG: Se True, ativa logs detalhados.
+    :return: True se a inserção for bem-sucedida, False caso contrário.
+    """
+    if not campos or not data or len(campos) != len(data):
+        logDetailedMessage("[INSERIR CAMPOS EMPRESA] Erro: campos e dados devem ter o mesmo tamanho.", LOG)
+        return False
+
+    # Cria um dicionário combinando campos com seus respectivos valores
+    fields_to_update = {}
+    for campo, valor in zip(campos, data):
+        fields_to_update[campo] = valor
+
+    # Prepara os parâmetros para a requisição
+    params = {
+        "entityTypeId": entity_type_id,
+        "id": company_id,
+        "fields": fields_to_update
+    }
+
+    # Faz a requisição para atualizar os campos
+    response = _bitrix_request("crm.item.update", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        logDetailedMessage(f"[INSERIR CAMPOS EMPRESA] Dados inseridos com sucesso na empresa ID {company_id}", LOG)
+        logDetailedMessage(f"[INSERIR CAMPOS EMPRESA] Campos atualizados: {fields_to_update}", LOG)
+        return True
+
+    logDetailedMessage(f"[INSERIR CAMPOS EMPRESA] Falha ao inserir dados na empresa ID {company_id}", LOG)
+    return False
