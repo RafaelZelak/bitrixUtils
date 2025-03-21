@@ -457,52 +457,49 @@ def updateContactFields(bitrix_webhook_url, contact_id, campos=None, data=None, 
 # SPA Functions
 
 # createSpaCard
-# EN: Creates a new SPA card with basic and optional fields
-# PT: Cria um novo card SPA com campos básicos e opcionais
-def createSpaCard(title, stage_id, category_id, assigned_by_id, bitrix_webhook_url, contact_id=None, extra_fields=None, LOG=False):
+# EN: Creates a new SPA card with optional fields and entity type filtering
+# PT: Cria um novo card SPA com campos opcionais e filtro de tipo de entidade
+def createSpaCard(bitrix_webhook_url, entity_type_id, fields=None, LOG=False):
     """
-    Cria um novo card no pipeline do Bitrix24.
+    Cria um novo card SPA no Bitrix24.
 
-    Essa função adiciona um novo card dentro de um Smart Process Automation (SPA) no Bitrix24.
+    Esta função permite criar um card SPA com campos específicos. É possível definir
+    o tipo de entidade (entity_type_id) e informar os campos desejados através do dicionário fields.
 
-    :param title: Título do card (string).
-    :param stage_id: ID do estágio inicial do card (string).
-    :param category_id: ID da categoria do card (int ou string).
-    :param assigned_by_id: ID do responsável pelo card (int ou string).
-    :param bitrix_webhook_url: URL base do webhook do Bitrix24.
-    :param contact_id: (Opcional) ID do contato a ser vinculado ao card.
-    :param extra_fields: (Opcional) Dicionário contendo campos extras para o card.
-    :param LOG: Se True, ativa logs detalhados para depuração.
-
-    :return: ID do card criado em caso de sucesso, ou None se falhar.
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param entity_type_id: ID do tipo de entidade para o SPA.
+    :param fields: (Opcional) Dicionário com campos e valores para o card.
+                   Exemplo:
+                   {
+                       "TITLE": "Título do Card",
+                       "stageId": "id_do_estágio",
+                       "categoryId": "id_da_categoria",
+                       "assignedById": "id_do_responsável",
+                       "contactId": "id_do_contato"
+                   }
+    :param LOG: Se True, ativa logs detalhados.
+    :return: ID do card criado em caso de sucesso, None em caso de erro.
     """
-
-    # Construção do payload com os campos obrigatórios
+    # Prepara os parâmetros para a requisição, incluindo o filtro de entity type
     params = {
-        "entityTypeId": 128,  # ID padrão para SPA, pode ser ajustado conforme necessário
-        "fields": {
-            "title": title,
-            "stageId": stage_id,
-            "categoryId": category_id,
-            "assignedById": assigned_by_id,
-            "contactId": contact_id
-        }
+        "entityTypeId": entity_type_id,
+        "fields": fields if fields else {}
     }
 
-    # Se houver campos extras, adicioná-los ao payload
-    if extra_fields and isinstance(extra_fields, dict):
-        params["fields"].update(extra_fields)
-
-    # Chamada à API centralizada usando `_bitrix_request`
+    # Faz a requisição para criar o card SPA
     response = _bitrix_request("crm.item.add", params, bitrix_webhook_url, LOG)
 
-    # Verifica resposta e retorna o ID do card criado
-    if response and "result" in response and "item" in response["result"]:
-        card_id = response["result"]["item"].get("id")
+    # Verifica a resposta e extrai o ID do card criado
+    if response and "result" in response:
+        result = response["result"]
+        if isinstance(result, dict) and "item" in result:
+            card_id = result["item"].get("id")
+        else:
+            card_id = result
         logDetailedMessage(f"[CRIAR CARD SPA] Card criado com sucesso. ID: {card_id}", LOG)
         return card_id
 
-    logDetailedMessage("[CRIAR CARD SPA] Falha ao obter o ID do card criado.", LOG)
+    logDetailedMessage("[CRIAR CARD SPA] Falha ao criar card SPA.", LOG)
     return None
 
 # getSpaCustomFields

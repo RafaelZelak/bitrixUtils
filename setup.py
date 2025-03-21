@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="bitrixUtils",
-    version="0.1.6",
+    version="0.1.7",
     author="Rafael Zelak Fernandes",
     author_email="rzf1503@gmail.com",
     description="Uma biblioteca para facilitar a integração com a API do Bitrix24",
