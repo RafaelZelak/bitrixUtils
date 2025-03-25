@@ -212,7 +212,7 @@ def checkContactExists(key, keyField, bitrix_webhook_url, LOG=False):
     logDetailedMessage("[VERIFICAR CONTATO] Nenhum contato encontrado.", LOG)
     return None
 
-#createContact
+#createContact <- obsoleta
 # EN: Creates a new contact with required and optional custom fields
 # PT: Cria um novo contato com campos obrigatórios e personalizados opcionais
 def createContact(contact_data, cpf_field, bitrix_webhook_url, extra_fields=None, LOG=False):
@@ -260,6 +260,47 @@ def createContact(contact_data, cpf_field, bitrix_webhook_url, extra_fields=None
 
     logDetailedMessage("[CRIAR CONTATO] Falha ao obter o ID do contato criado.", LOG)
     return None
+
+
+#createContact
+# EN: Creates a new contact with required and optional custom fields
+# PT: Cria um novo contato com campos obrigatórios e personalizados opcionais
+def createContact_new(bitrix_webhook_url, fields=None, LOG=False):
+    """
+    Cria uma nova Contato no Bitrix24.
+
+    Esta função permite criar um contato vazio ou com campos específicos.
+    Os campos podem incluir informações como título, telefone, email, endereço, etc.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param fields: (Opcional) Dicionário com campos e valores para o contato.
+                  Exemplo: {
+                      "TITLE": "Contato XYZ",
+                      "COMPANY_TYPE": "CUSTOMER",
+                      "EMAIL": [{"VALUE": "contato@empresa.com", "VALUE_TYPE": "WORK"}],
+                      "PHONE": [{"VALUE": "11999999999", "VALUE_TYPE": "WORK"}],
+                      "INDUSTRY": "IT",
+                      "COMMENTS": "Observações da Contato"
+                  }
+    :param LOG: Se True, ativa logs detalhados.
+    :return: ID da Contato criada em caso de sucesso, None em caso de erro.
+    """
+    # Prepara os parâmetros para a requisição
+    params = {
+        "fields": fields if fields else {}
+    }
+
+    # Faz a requisição para criar a empresa
+    response = _bitrix_request("crm.contact.add", params, bitrix_webhook_url, LOG)
+
+    if response and "result" in response:
+        company_id = response["result"]
+        logDetailedMessage(f"[CRIAR CONTATO] contato criado com sucesso. ID: {company_id}", LOG)
+        return company_id
+
+    logDetailedMessage("[CRIAR CONTATO] Falha ao criar contato.", LOG)
+    return None
+
 
 #createContactAddress
 # EN: Creates and links a new address to an existing contact
@@ -1234,4 +1275,60 @@ def searchCompanyByField(bitrix_webhook_url, search_field, value, select_fields=
         return response["result"]
 
     logDetailedMessage(f"[SEARCH COMPANY] Failed to find companies for {search_field} = {value}.", LOG)
+    return None
+
+# getDealsByCompany
+# EN: Retrieves all deals (cards) linked to a specific company (either as primary or associated)
+# PT: Obtém todos os cards (deals) vinculados a uma empresa específica (seja como principal ou associada)
+def getDealsByCompany(bitrix_webhook_url, company_id, select_fields=None, LOG=False):
+    """
+    Obtém todos os cards (deals) que possuem a empresa informada vinculada, seja no campo principal ou como associada.
+
+    Conforme a documentação do Bitrix24, quando uma empresa está vinculada como associada ao negócio,
+    ela é armazenada em um campo multivalorado (COMPANY_IDS). Assim, para filtrar os deals que têm
+    essa empresa vinculada, usamos o operador "@=" no filtro (ou seja, "=@COMPANY_IDS").
+
+    A função utiliza paginação para iterar por todas as páginas até que não haja mais resultados.
+    Se select_fields for None, retorna todos os campos disponíveis, incluindo os customizados.
+
+    :param bitrix_webhook_url: URL do webhook do Bitrix24.
+    :param company_id: ID da empresa que será usada para filtrar os deals.
+    :param select_fields: (Opcional) Lista de campos a serem retornados. Exemplo: ["*", "UF_*"]
+    :param LOG: Se True, ativa logs detalhados.
+    :return: Lista de deals vinculados à empresa ou None em caso de erro.
+    """
+    if select_fields is None:
+        select_fields = ["*", "UF_*"]
+
+    start = 0
+    deals = []
+
+    while True:
+        params = {
+            "filter": {
+                "=@COMPANY_IDS": company_id  # Usa o operador para buscar em campos multivalorados
+            },
+            "select": select_fields,
+            "start": start
+        }
+
+        logDetailedMessage(f"[GET DEALS] Buscando cards (deals) para a empresa ID {company_id} a partir do offset {start}.", LOG)
+        response = _bitrix_request("crm.deal.list", params, bitrix_webhook_url, LOG)
+
+        if response and "result" in response:
+            current_deals = response["result"]
+            if not current_deals:
+                break
+
+            deals.extend(current_deals)
+            start += len(current_deals)
+        else:
+            logDetailedMessage(f"[GET DEALS] Falha na requisição ao buscar cards (deals) para a empresa ID {company_id}.", LOG)
+            return None
+
+    if deals:
+        logDetailedMessage(f"[GET DEALS] Cards (deals) encontrados: {len(deals)} para a empresa ID {company_id}.", LOG)
+        return deals
+
+    logDetailedMessage(f"[GET DEALS] Nenhum card (deal) encontrado para a empresa ID {company_id}.", LOG)
     return None
